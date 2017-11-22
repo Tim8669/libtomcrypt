@@ -407,6 +407,24 @@ static void _der_tests_print_flexi(ltc_asn1_list* l, unsigned int level)
       text = buf;
     }
     break;
+  case LTC_ASN1_CUSTOM_TYPE:
+    name = "NON STANDARD";
+    {
+       int r;
+       char* s = buf;
+       int sz = sizeof(buf);
+
+       r = snprintf(s, sz, "[%s %s %llu]", der_asn1_class_to_string_map[l->class], der_asn1_pc_to_string_map[l->pc], l->tag);
+       if (r < 0 || r >= sz) {
+           fprintf(stderr, "%s boom\n", name);
+           exit(EXIT_FAILURE);
+       }
+       s += r;
+       sz -= r;
+
+       text = buf;
+    }
+    break;
   }
 
   for (n = 0; n < level; ++n) {
@@ -488,7 +506,7 @@ SEQUENCE(3 elem)
             INTEGER  2
    */
 
-  CHECK_ASN1_TYPE(l1, LTC_ASN1_CONSTRUCTED);
+  CHECK_ASN1_TYPE(l1, LTC_ASN1_CUSTOM_TYPE);
   CHECK_ASN1_HAS_CHILD(l1);
   CHECK_ASN1_HAS_NEXT(l1);
 
@@ -1090,6 +1108,60 @@ static int der_choice_test(void)
   return 0;
 }
 
+static void _der_decode_print(void* p, unsigned long* plen)
+{
+   ltc_asn1_list *list;
+   DO(der_decode_sequence_flexi(p, plen, &list));
+#ifdef LTC_DER_TESTS_PRINT_FLEXI
+   _der_tests_print_flexi(list, 0);
+#endif
+   der_sequence_free(list);
+}
+
+static void der_custom_test(void)
+{
+   ltc_asn1_list bool_ean[1], seq1[1], custom[1];
+   unsigned long len;
+   unsigned char buf[1024], boolean;
+   unsigned char buf1[] = { 0xbf, 0xa0, 0x00, 0x04, 0x30, 0x02, 0x05, 0x00 };
+   unsigned char buf2[] = { 0x30, 0x08, 0xbf, 0xa0, 0x00, 0x04, 0x30, 0x02, 0x05, 0x00 };
+
+   boolean = 0x1;
+   LTC_SET_ASN1(bool_ean, 0, LTC_ASN1_BOOLEAN, &boolean, 1);
+   LTC_SET_ASN1(seq1, 0, LTC_ASN1_SEQUENCE, bool_ean, 1);
+   LTC_SET_ASN1(custom, 0, LTC_ASN1_CUSTOM_TYPE, seq1, 1);
+   LTC_SET_ASN1_IDENTIFIER(custom, 0, LTC_ASN1_CL_CONTEXT_SPECIFIC, LTC_ASN1_PC_CONSTRUCTED, 0x1000);
+
+   DO(der_length_custom_type(custom, &len, NULL));
+   len = sizeof(buf);
+   DO(der_encode_custom_type(custom, buf, &len));
+   _der_decode_print(buf, &len);
+
+   boolean = 0x0;
+   DO(der_decode_custom_type(buf, len, custom));
+
+   DO(der_length_sequence(custom, 1, &len));
+   len = sizeof(buf);
+   DO(der_encode_sequence(custom, 1, buf, &len));
+   _der_decode_print(buf, &len);
+
+   boolean = 0x0;
+   DO(der_decode_sequence(buf, len, custom, 1));
+
+   LTC_SET_ASN1(custom, 0, LTC_ASN1_CUSTOM_TYPE, bool_ean, 1);
+   LTC_SET_ASN1_IDENTIFIER(custom, 0, LTC_ASN1_CL_CONTEXT_SPECIFIC, LTC_ASN1_PC_PRIMITIVE, 0x8000);
+   DO(der_length_custom_type(custom, &len, NULL));
+   len = sizeof(buf);
+   DO(der_encode_custom_type(custom, buf, &len));
+   _der_decode_print(buf, &len);
+
+   len = sizeof(buf1);
+   _der_decode_print(buf1, &len);
+
+   len = sizeof(buf2);
+   _der_decode_print(buf2, &len);
+}
+
 
 int der_test(void)
 {
@@ -1124,6 +1196,8 @@ int der_test(void)
    wchar_t utf8_out[32];
 
    if (ltc_mp.name == NULL) return CRYPT_NOP;
+
+   der_custom_test();
 
    der_cacert_test();
 
